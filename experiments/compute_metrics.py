@@ -1,6 +1,8 @@
 import argparse
 import os
 import json
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
 import torch
@@ -148,9 +150,10 @@ def compute_repetition(samples_dict, tokenizer):
 def compute_ppl(samples_dict, ppl_model_name, batch_size, fp16=True):
     """Compute perplexities under `ppl_model_name`."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = AutoModelForCausalLM.from_pretrained(ppl_model_name).to(device)
+    model = AutoModelForCausalLM.from_pretrained(ppl_model_name)
     if fp16:
         model = model.half()
+    model.to(device)
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(ppl_model_name)
 

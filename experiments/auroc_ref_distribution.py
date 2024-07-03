@@ -1,5 +1,7 @@
 import argparse
 import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import json
 
@@ -8,6 +10,7 @@ import torch
 from datasets import load_dataset
 from tqdm import tqdm
 from transformers import AutoTokenizer
+
 
 from watermarks.kgw.watermark_processor import WatermarkDetector
 from watermarks.aar.aar_watermark import AarWatermarkDetector

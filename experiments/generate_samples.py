@@ -72,6 +72,7 @@ def get_prompts(args) -> Dict:
             max_length=max_length,
             return_tensors="pt"
         ).to(device)
+        # Examples are truncated to max_length, which comprises the possible generation prompt and the text to be generated
         examples["text"] = tokenizer.batch_decode(trunc_tokens["input_ids"], skip_special_tokens=True)
         prompt = tokenizer(
             examples["text"], truncation=True, padding=True, max_length=args.prompt_length, return_tensors="pt",
@@ -85,7 +86,8 @@ def get_prompts(args) -> Dict:
         return examples
 
     dataset = dataset.filter(filter_length)
-    if args.dataset_num_skip > 0:
+    # Set how many samples will be skipped
+    if args.dataset_num_skip > 0: 
         dataset = dataset.skip(args.dataset_num_skip)
     dataset = dataset.map(encode, batched=True)
 
@@ -122,10 +124,25 @@ def generate_samples(model_name, args, prompts) -> Dict:
         tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name)
     else:
         tokenizer = AutoTokenizer.from_pretrained(model_name)  
+    
+    # model = AutoModelForCausalLM.from_pretrained(model_name)
+    # model = model.to('cpu')
+    # if args.fp16:
+    #     model = model.half()
+    # model.to(device)
+    # model.eval()
+
+    # Use DataParallel if multiple GPUs are available
     model = AutoModelForCausalLM.from_pretrained(model_name)
-    model = model.to(device)
     if args.fp16:
         model = model.half()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    print(f"Using device: {device}, GPU Count:{torch.cuda.device_count()}")
+    is_data_parallel = False
+    if torch.cuda.device_count() > 1:
+        model = torch.nn.DataParallel(model)
+        is_data_parallel = True
     model.eval()
 
     if tokenizer.pad_token is None:
@@ -138,17 +155,30 @@ def generate_samples(model_name, args, prompts) -> Dict:
         if len(model_text) >= args.num_samples:
             break
         with torch.no_grad():
-            outputs = model.generate(
-                input_ids=batch["input_ids"],
-                attention_mask=batch["attention_mask"],
-                do_sample=DO_SAMPLE,
-                min_new_tokens=args.min_new_tokens,
-                max_new_tokens=args.max_new_tokens,
-                temperature=args.temperature,
-                top_p=args.top_p,
-                top_k=args.top_k,
-                pad_token_id=tokenizer.eos_token_id,
-            )
+            if is_data_parallel:
+                outputs = model.module.generate(
+                    input_ids=batch["input_ids"],
+                    attention_mask=batch["attention_mask"],
+                    do_sample=DO_SAMPLE,
+                    min_new_tokens=args.min_new_tokens,
+                    max_new_tokens=args.max_new_tokens,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    top_k=args.top_k,
+                    pad_token_id=tokenizer.eos_token_id,
+                )
+            else:
+                outputs = model.generate(
+                    input_ids=batch["input_ids"],
+                    attention_mask=batch["attention_mask"],
+                    do_sample=DO_SAMPLE,
+                    min_new_tokens=args.min_new_tokens,
+                    max_new_tokens=args.max_new_tokens,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    top_k=args.top_k,
+                    pad_token_id=tokenizer.eos_token_id,
+                )
 
             n_input_tokens = batch["input_ids"].shape[1]
             model_text.extend(tokenizer.batch_decode(outputs[:, n_input_tokens:], skip_special_tokens=True))
